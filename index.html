@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Waypoint Grid">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0F1B2E">
+<title>Waypoint Grid — Trail Marker Network</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- Baked-in default trail posts. Empty by default (a fresh copy of this app
+     still needs a CSV uploaded once). Loading real posts through the app
+     keeps this array in sync automatically, so a VISITOR who opens THIS
+     copy of the file gets the real map immediately — no upload
+     step required. -->
+<script type="application/json" id="posts-config">[]</script>
+<div id="app">
+  <header>
+    <div class="brand">
+      <h1>Waypoint Grid</h1>
+      <span class="tag">TRAIL MARKER NAVIGATION NETWORK</span>
+    </div>
+    <div class="header-right">
+      <div class="unit-switch" style="display:flex;border:1px solid rgba(255,255,255,0.25);border-radius:3px;overflow:hidden;">
+        <button class="unit-btn active" id="unit-metric" data-unit="metric">m / km</button>
+        <button class="unit-btn" id="unit-imperial" data-unit="imperial">ft / mi</button>
+      </div>
+      <div class="stat">POSTS LOADED &nbsp;<b id="post-count">0</b></div>
+    </div>
+  </header>
+
+  <div id="main">
+    <div id="sidebar">
+      <div id="sidebar-top">
+      <div class="section">
+        <h2>Load Post Data</h2>
+        <div class="upload-row">
+          <label class="btn btn-primary" for="csv-input" style="flex:1;text-align:center;">Upload CSV</label>
+          <input type="file" id="csv-input" accept=".csv,.txt" />
+        </div>
+        <button class="btn btn-ghost btn-block" id="demo-btn">Load demo data instead</button>
+        <button class="btn btn-ghost btn-block" id="reset-all-btn">Reset all data</button>
+        <button class="btn btn-ghost btn-block" id="download-csv-btn">Download marker list (CSV)</button>
+        <p class="hint">Auto-detects comma/semicolon/tab delimiters and matches columns by header name (e.g. "Lat"/"Latitude", "Lon"/"Longitude", "ID"/"Post #", "Name"). No header row? It falls back to position order: number, lat, lon, name. Swapped lat/lon is auto-corrected.</p>
+        <details style="margin-top:8px;">
+          <summary style="font-size:12px;color:var(--brown);cursor:pointer;">Or paste data manually</summary>
+          <textarea id="paste-area" placeholder="1, 44.2691, -71.3033, Trailhead&#10;2, 44.2703, -71.3041"></textarea>
+          <button class="btn btn-primary btn-block" id="paste-btn">Load pasted data</button>
+        </details>
+        <div id="file-status"></div>
+      </div>
+
+      <div class="section">
+        <h2>Map Base</h2>
+        <div class="mode-tabs">
+          <div class="mode-tab active" data-mode="grid">Grid</div>
+          <div class="mode-tab" data-mode="image">My Map</div>
+          <div class="mode-tab" data-mode="tiles">OSM Tiles</div>
+          <div class="mode-tab" data-mode="google">Google Maps</div>
+        </div>
+        <div id="mode-note" class="mode-note">Self-drawn coordinate grid. Always works, no internet needed.</div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:10px;cursor:pointer;">
+          <input type="checkbox" id="marker-size-toggle" style="width:15px;height:15px;" />
+          Bigger markers &amp; labels
+        </label>
+
+        <div id="image-controls" style="display:none;">
+          <p class="hint" style="margin-top:8px;"><b>What image works:</b> any JPG/PNG/scan of your park's trail map, ideally north-up (not rotated) and not artistically distorted. A straight photo or PDF export of an official trail map works well; a stylized "not to scale" tourist illustration will place posts less accurately the further they are from your 2 reference points.</p>
+          <div class="upload-row" style="margin-top:8px;">
+            <label class="btn btn-primary" for="img-input" style="flex:1;text-align:center;">Upload Map Image</label>
+            <input type="file" id="img-input" accept="image/*" />
+          </div>
+          <div id="img-upload-status" class="hint"></div>
+          <div id="calib-panel" style="display:none;">
+            <p class="hint">Click "Pick", then click that spot on the map image on the right. Then give <b>that exact spot's real-world coordinates</b> — either pick one of your already-loaded posts below (auto-fills its known lat/lon), or type coordinates manually. Do this for two points that are far apart (e.g. opposite ends of the trail).</p>
+            <div class="calib-row">
+              <div class="lbl">Reference point 1</div>
+              <button class="btn btn-ghost btn-sm" id="pick1-btn">Pick on map</button>
+              <div class="pxinfo" id="pick1-info">not set — click "Pick on map", then click the image</div>
+              <select id="p1-post-select" style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 6px;border:1px solid var(--line);border-radius:3px;margin-top:2px;">
+                <option value="">— manual entry —</option>
+              </select>
+              <div class="calib-inputs">
+                <input type="number" step="any" id="p1-lat" placeholder="real lat, e.g. 44.2691" />
+                <input type="number" step="any" id="p1-lon" placeholder="real lon, e.g. -71.3033" />
+              </div>
+            </div>
+            <div class="calib-row">
+              <div class="lbl">Reference point 2</div>
+              <button class="btn btn-ghost btn-sm" id="pick2-btn">Pick on map</button>
+              <div class="pxinfo" id="pick2-info">not set — click "Pick on map", then click the image</div>
+              <select id="p2-post-select" style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 6px;border:1px solid var(--line);border-radius:3px;margin-top:2px;">
+                <option value="">— manual entry —</option>
+              </select>
+              <div class="calib-inputs">
+                <input type="number" step="any" id="p2-lat" placeholder="real lat" />
+                <input type="number" step="any" id="p2-lon" placeholder="real lon" />
+              </div>
+            </div>
+            <button class="btn btn-primary btn-block" id="apply-calib-btn">Apply calibration</button>
+            <button class="btn btn-ghost btn-block" id="reset-calib-btn">Reset calibration</button>
+            <div class="hint" id="calib-status"></div>
+          </div>
+        </div>
+
+        <div id="tiles-controls" style="display:none;">
+          <p class="hint" style="margin-top:8px;">Uses free map tiles. Needs an internet connection — if the map stays blank, try opening this file directly in a browser tab instead of a preview window. Tiles also load more reliably when this app is hosted at a real https:// address (e.g. GitHub Pages) rather than opened as a local file \u2014 OpenStreetMap's servers can block requests that arrive with no identifiable source page.</p>
+          <div class="mode-tabs" style="margin-top:8px;">
+            <div class="subtab active" data-tiles-layer="street">Street (OSM)</div>
+            <div class="subtab" data-tiles-layer="satellite">Satellite (Esri)</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:10px;cursor:pointer;">
+            <input type="checkbox" id="route-toggle" style="width:15px;height:15px;" />
+            Snap path to real trails (walking route)
+          </label>
+          <p class="hint" id="route-status"></p>
+        </div>
+
+        <div id="google-controls" style="display:none;">
+          <p class="hint" style="margin-top:8px;">Uses the real Google Maps. Requires your own Google Maps JavaScript API key (with billing enabled on your Google Cloud project) — Anthropic can't provide one for you.</p>
+          <div class="calib-inputs" style="margin-top:6px;">
+            <input type="text" id="gmaps-key" placeholder="Paste your Google Maps API key" style="flex:1;" />
+          </div>
+          <button class="btn btn-primary btn-block" id="gmaps-load-btn">Load Google Maps</button>
+          <p class="hint" id="gmaps-status"></p>
+        </div>
+      </div>
+
+      <div class="section" id="gap-panel-section" style="border-bottom:2px solid var(--brown);display:block;">
+        <h2>Gap Analysis</h2>
+        <p class="hint" style="margin-top:0;">Highlights unusually long stretches between consecutive posts \u2014 places a new marker may be needed \u2014 without adding any new marker icons. Just the connecting line changes color, with a label showing each segment\u2019s length. Works on My Map and OSM Tiles.</p>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;margin-bottom:8px;">
+          <input type="checkbox" id="gap-toggle" style="width:15px;height:15px;" />
+          Show gap analysis on the map
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;margin-bottom:8px;">
+          <input type="checkbox" id="markers-visible-toggle" style="width:15px;height:15px;" checked />
+          Show marker pins (turn off for a clean gap-only view)
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;margin-bottom:8px;">
+          <input type="checkbox" id="gap-labels-toggle" style="width:15px;height:15px;" checked />
+          Show distance labels (turn off if they cover short segments)
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11.5px;white-space:nowrap;">Flag segments longer than</span>
+          <input type="number" id="gap-threshold" step="any" style="width:80px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:5px 6px;border:1px solid var(--line);border-radius:3px;" />
+          <span style="font-size:11.5px;" id="gap-threshold-unit">m</span>
+        </div>
+        <div class="hint" id="gap-summary" style="margin-top:8px;font-weight:600;color:var(--charcoal);"></div>
+      </div>
+
+      <div class="section" style="border-bottom:2px solid var(--brown);">
+        <h2>My Location</h2>
+        <button class="btn btn-ghost btn-block" id="loc-toggle">Show my location</button>
+        <p class="hint" id="loc-status">Uses your phone/browser's GPS as a cross-check — your posts remain the primary reference.</p>
+        <div class="hint" id="loc-nearest" style="font-weight:600;color:var(--charcoal);"></div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">
+          <div style="font-size:11px;font-weight:600;color:var(--brown);margin-bottom:4px;">Or simulate a position (planning ahead, no GPS needed)</div>
+          <select id="sim-post-select" style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:6px;border:1px solid var(--line);border-radius:3px;background:var(--paper);">
+            <option value="">— choose a post —</option>
+          </select>
+          <div style="display:flex;gap:6px;margin-top:6px;">
+            <button class="btn btn-primary btn-sm" id="simulate-btn" style="flex:1;">Simulate here</button>
+            <button class="btn btn-ghost btn-sm" id="clear-sim-btn" style="flex:1;">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section" style="border-bottom:2px solid var(--brown);">
+        <h2>Management View <span style="font-weight:400;font-size:10px;color:var(--sage);text-transform:none;letter-spacing:0;">(staff only)</span></h2>
+        <p class="hint">Color-codes markers by the "Action"/"Status" column in your CSV, for maintenance planning. Not for visitor-facing use — this is a convenience toggle, not real access control; anyone with this file can turn it on. Genuine staff-only restriction would need a login-gated deployment.</p>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" id="mgmt-toggle" style="width:15px;height:15px;" />
+          Color markers by action type
+        </label>
+        <div id="mgmt-legend" style="margin-top:8px;"></div>
+      </div>
+      </div>
+
+      <div class="section" style="border-bottom:none;padding-bottom:0;flex-shrink:0;">
+        <h2>Find a Post</h2>
+        <input type="text" id="search" placeholder="Type a post number…" />
+      </div>
+      <div id="list-wrap">
+        <div id="empty">No posts loaded yet.<br>Upload a CSV or load demo data to see the network plotted on the map.</div>
+        <ul id="post-list"></ul>
+      </div>
+    </div>
+
+    <div id="map-wrap">
+      <button id="sidebar-toggle" title="Hide/show panel">◀</button>
+      <div id="map-empty">Load posts to generate the map —<br>it draws itself from your GPS data.</div>
+      <button id="download-map-btn" class="btn btn-primary" style="position:absolute;top:12px;right:12px;z-index:9999;">⬇ Download Map</button>
+      <div id="download-status" style="position:absolute;top:52px;right:12px;z-index:9999;max-width:260px;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--sage);"></div>
+      <svg id="mapsvg" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="leaflet-map" style="display:none;"></div>
+      <div id="google-map" style="display:none;width:100%;height:100%;"></div>
+      <div id="image-stage">
+        <div id="image-inner">
+          <img id="map-img" />
+          <svg id="image-lines" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></svg>
+          <div id="image-markers"></div>
+        </div>
+      </div>
+      <div id="detail">
+        <button class="close" id="detail-close">✕</button>
+        <div class="sub">You are here</div>
+        <h3 id="d-title">Post —</h3>
+        <dl class="detail-grid">
+          <dt>Lat</dt><dd id="d-lat">—</dd>
+          <dt>Lon</dt><dd id="d-lon">—</dd>
+          <dt>Sequence</dt><dd id="d-seq">—</dd>
+          <dt>Prev leg</dt><dd id="d-prev">—</dd>
+          <dt>Next leg</dt><dd id="d-next">—</dd>
+        </dl>
+        <div id="d-fromme" style="display:none;margin-top:10px;padding:8px 10px;background:rgba(41,121,255,0.1);border-left:3px solid #2979FF;border-radius:2px;font-size:12.5px;font-weight:600;"></div>
+        <a id="d-navigate" href="#" target="_blank" rel="noopener" class="btn btn-primary btn-block" style="text-align:center;text-decoration:none;display:block;margin-top:8px;">Navigate here (Google Maps)</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- Order matters: later files use things defined in earlier ones -->
+<script src="js/state.js"></script>
+<script src="js/management.js"></script>
+<script src="js/location.js"></script>
+<script src="js/helpers.js"></script>
+<script src="js/csv.js"></script>
+<script src="js/grid.js"></script>
+<script src="js/image.js"></script>
+<script src="js/tiles.js"></script>
+<script src="js/routing.js"></script>
+<script src="js/google.js"></script>
+<script src="js/modes.js"></script>
+<script src="js/render.js"></script>
+<script src="js/export.js"></script>
+<script src="js/startup.js"></script>
+</body>
+</html>
